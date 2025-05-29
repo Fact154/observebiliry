@@ -1,0 +1,87 @@
+---
+- name: Установка и настройка Promtail
+  hosts: postgresql_servers
+  become: yes 
+
+  vars:
+    promtail_version: "3.4.2"
+    promtail_url: "https://github.com/grafana/loki/releases/download/v{{ promtail_version }}/promtail-linux-amd64.zip"
+    promtail_zip: "/tmp/promtail-linux-amd64.zip"
+    promtail_bin: "/usr/local/bin/promtail"
+    promtail_config_path: "/etc/promtail-config.yml"
+    promtail_service_path: "/etc/systemd/system/promtail.service"
+    loki_host: "http://172.16.20.208"
+    loki_port: 32212
+    db_log_path: "/var/log/postgresql/postgresql-15-main.log"
+
+  tasks:
+    - name: Установка зависимости
+      ansible.builtin.package:
+        name: unzip
+        state: present
+
+    - name: Скачивание Promtail бинарник
+      get_url:
+        url: "https://github.com/grafana/loki/releases/download/v3.4.2/promtail-linux-amd64.zip"
+        dest: "/tmp/promtail-linux-amd64.zip"
+        mode: "0644"
+
+    - name: Проверка, скачался ли ZIP-файл
+      stat:
+        path: "/tmp/promtail-linux-amd64.zip"
+      register: promtail_zip_stat
+
+    - name: Распаковка Promtail
+      unarchive:
+        src: "/tmp/promtail-linux-amd64.zip"
+        dest: "/tmp/"
+        remote_src: yes
+      when: promtail_zip_stat.stat.exists
+
+    - name: Проверка, распаковался ли бинарник
+      stat:
+        path: "/tmp/promtail-linux-amd64"
+      register: promtail_bin_stat
+
+    - name: Переименовка бинарника в `promtail`
+      command: mv /tmp/promtail-linux-amd64 /tmp/promtail
+      when: promtail_bin_stat.stat.exists
+
+    - name: Перемещение Promtail в `/usr/local/bin/`
+      command: mv /tmp/promtail /usr/local/bin/promtail
+      args:
+        creates: /usr/local/bin/promtail
+
+    - name: Создание Promtail исполняемым
+      file:
+        path: "/usr/local/bin/promtail"
+        mode: "0755"
+
+    - name: Удаление ZIP-файла
+      file:
+        path: "{{ promtail_zip }}"
+        state: absent
+
+    - name: Создание конфигурации Promtail
+      template:
+        src: promtail-config-postgres.yml.j2
+        dest: "{{ promtail_config_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Создание systemd unit-файла для Promtail
+      template:
+        src: promtail.service.j2
+        dest: "{{ promtail_service_path }}"
+        mode: "0644"
+
+    - name: Перезапуск systemd для применения сервиса
+      systemd:
+        daemon_reload: yes
+
+    - name: Включение и запуск Promtail
+      systemd:
+        name: promtail
+        enabled: yes
+        state: restarted

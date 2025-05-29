@@ -1,0 +1,17 @@
+---
+- name: Update Tempo in Kubernetes
+  hosts: localhost
+  gather_facts: no
+  environment:
+    KUBECONFIG: "/Users/sb27/.kube/config"
+  tasks:
+    - name: Upgrade Tempo using Helm with values.yaml
+      kubernetes.core.helm:
+        name: tempo
+        chart_ref: grafana/tempo
+        release_namespace: monitoring
+        values_files:
+          - "{{ playbook_dir }}/../files/tempo-values.yaml"
+        state: present
+      environment:
+        KUBECONFIG: "/Users/sb27/.kube/config"

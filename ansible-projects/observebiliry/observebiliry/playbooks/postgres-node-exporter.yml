@@ -1,0 +1,67 @@
+---
+- name: Install PostgreSQL Exporter
+  hosts: postgresql_servers
+  become: true
+  vars:
+    postgres_exporter_version: "0.15.0"
+    postgres_exporter_user: "postgres_exporter"
+    postgres_exporter_port: 9187
+    postgres_user: "postgres"
+    postgres_password: "example"
+    postgres_host: "127.0.0.1"
+    postgres_db: "postgres"
+
+  tasks:
+    - name: Create postgres_exporter user
+      user:
+        name: "{{ postgres_exporter_user }}"
+        shell: /usr/sbin/nologin
+        system: yes
+        createhome: no
+
+    - name: Download PostgreSQL Exporter binary
+      get_url:
+        url: "https://github.com/prometheus-community/postgres_exporter/releases/download/v{{ postgres_exporter_version }}/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/postgres_exporter.tar.gz"
+        mode: '0644'
+
+    - name: Extract PostgreSQL Exporter
+      ansible.builtin.unarchive:
+        src: "/tmp/postgres_exporter.tar.gz"
+        dest: "/usr/local/bin/"
+        remote_src: yes
+        extra_opts: [--strip-components=1]
+
+    - name: Set permissions for PostgreSQL Exporter
+      file:
+        path: "/usr/local/bin/postgres_exporter"
+        owner: "{{ postgres_exporter_user }}"
+        group: "{{ postgres_exporter_user }}"
+        mode: '0755'
+
+    - name: Create PostgreSQL Exporter systemd service
+      copy:
+        dest: "/etc/systemd/system/postgres_exporter.service"
+        content: |
+          [Unit]
+          Description=PostgreSQL Exporter
+          After=network.target
+
+          [Service]
+          User={{ postgres_exporter_user }}
+          Group={{ postgres_exporter_user }}
+          Environment="DATA_SOURCE_NAME=postgresql://{{ postgres_user }}:{{ postgres_password }}@{{ postgres_host }}/{{ postgres_db }}?sslmode=disable"
+          ExecStart=/usr/local/bin/postgres_exporter --web.listen-address=:{{ postgres_exporter_port }}
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable and start PostgreSQL Exporter
+      systemd:
+        name: postgres_exporter
+        state: started
+        enabled: yes

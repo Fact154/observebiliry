@@ -1,0 +1,25 @@
+prometheus:
+  enabled: false
+
+grafana:
+  enabled: false
+
+loki:
+  enabled: true
+
+  # persistence:
+  #   enabled: true
+  #   storageClassName: "" 
+  #   accessModes:
+  #     - ReadWriteMany
+  #   size: 10Gi
+  #   selector:
+  #     matchLabels:
+  #       app: loki
+
+  # commonConfig:
+  #   replication_factor: 1
+
+table_manager:
+  retention_deletes_enabled: true
+  retention_period: 15d

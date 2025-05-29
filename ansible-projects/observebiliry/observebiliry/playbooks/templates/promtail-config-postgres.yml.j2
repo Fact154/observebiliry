@@ -1,0 +1,19 @@
+server:
+  http_listen_port: 9080
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: "{{ loki_host }}:{{ loki_port }}/loki/api/v1/push"
+
+scrape_configs:
+  - job_name: "postgresql-logs"
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: "postgresql-logs"
+          host: "{{ ansible_hostname }}"
+          app: "postgresql"
+          __path__: "{{ db_log_path }}"

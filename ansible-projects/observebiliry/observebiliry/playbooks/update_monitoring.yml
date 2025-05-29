@@ -1,0 +1,36 @@
+- name: Update Grafana and Prometheus in Kubernetes
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Set Kubeconfig environment variable
+      ansible.builtin.set_fact:
+        ansible_env:
+          KUBECONFIG: "/root/.kube/config"
+
+    - name: Add Prometheus Helm repository
+      kubernetes.core.helm_repository:
+        name: prometheus-community
+        repo_url: "https://prometheus-community.github.io/helm-charts"
+
+    - name: Update Helm repositories
+      ansible.builtin.command: helm repo update
+      register: helm_repo_update
+      changed_when: "'Update Complete.' in helm_repo_update.stdout"
+
+    - name: Upgrade Prometheus with Helm
+      kubernetes.core.helm:
+        name: prometheus
+        chart_ref: prometheus-community/kube-prometheus-stack
+        release_namespace: monitoring
+        values_files:
+          - "{{ playbook_dir }}/../files/grafana-prometheus-values.yaml"
+        state: present
+
+    # - name: Upgrade Grafana with Helm
+    #   kubernetes.core.helm:
+    #     name: prometheus-grafana
+    #     chart_ref: grafana/grafana
+    #     release_namespace: monitoring
+    #     values_files:
+    #       - "{{ playbook_dir }}/../files/grafana-prometheus-values.yaml"
+    #     state: present

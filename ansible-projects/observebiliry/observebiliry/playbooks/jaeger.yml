@@ -1,0 +1,117 @@
+---
+- name: Развернуть Jaeger Agent и OpenTelemetry Collector для экспорта трассировок в Tempo
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Set Kubeconfig environment variable
+      ansible.builtin.set_fact:
+        ansible_env:
+          KUBECONFIG: "/Users/sb27/.kube/config"
+
+    - name: Delete existing otel-collector Deployment if exists
+      kubernetes.core.k8s:
+        state: absent
+        namespace: monitoring
+        kind: Deployment
+        name: otel-collector
+      ignore_errors: yes
+
+    #################################################################
+    # Развёртываем Jaeger Agent в виде DaemonSet
+    #################################################################
+    - name: Deploy Jaeger Agent DaemonSet
+      kubernetes.core.k8s:
+        state: present
+        namespace: monitoring
+        definition:
+          apiVersion: apps/v1
+          kind: DaemonSet
+          metadata:
+            name: jaeger-agent
+          spec:
+            selector:
+              matchLabels:
+                app: jaeger-agent
+            template:
+              metadata:
+                labels:
+                  app: jaeger-agent
+              spec:
+                containers:
+                - name: jaeger-agent
+                  image: jaegertracing/jaeger-agent:1.33
+                  args:
+                    # Агент будет пересылать трассировки через gRPC на otel-collector
+                    - "--reporter.grpc.host-port=otel-collector.monitoring:14250"
+                  ports:
+                    - containerPort: 6831  # UDP thrift compact
+                    - containerPort: 6832  # UDP thrift binary
+                    - containerPort: 5775  # UDP legacy
+                    - containerPort: 14271 # Health check
+
+    #################################################################
+    # Создаём ConfigMap с конфигурацией OpenTelemetry Collector
+    #################################################################
+    - name: Create ConfigMap for otel-collector configuration
+      kubernetes.core.k8s:
+        state: present
+        namespace: monitoring
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: otel-collector-config
+          data:
+            otel-collector-config.yaml: |
+              receivers:
+                jaeger:
+                  protocols:
+                    grpc:
+                      endpoint: "0.0.0.0:14250"
+              exporters:
+                otlp:
+                  # Укажите здесь актуальный endpoint вашего Tempo
+                  endpoint: "tempo.monitoring:4317"
+                  tls:
+                    insecure: true
+              service:
+                pipelines:
+                  traces:
+                    receivers: [jaeger]
+                    exporters: [otlp]
+
+    #################################################################
+    # Развёртываем OpenTelemetry Collector
+    #################################################################
+    - name: Deploy OpenTelemetry Collector
+      kubernetes.core.k8s:
+        state: present
+        namespace: monitoring
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: otel-collector
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: otel-collector
+            template:
+              metadata:
+                labels:
+                  app: otel-collector
+              spec:
+                containers:
+                - name: otel-collector
+                  image: otel/opentelemetry-collector-contrib:latest
+                  args: ["--config=/conf/otel-collector-config.yaml"]
+                  ports:
+                    - containerPort: 14250
+                  volumeMounts:
+                    - name: config
+                      mountPath: /conf
+                volumes:
+                  - name: config
+                    configMap:
+                      name: otel-collector-config

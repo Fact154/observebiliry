@@ -1,0 +1,41 @@
+- name: Update Jaeger and Loki in Kubernetes
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Set Kubeconfig environment variable
+      ansible.builtin.set_fact:
+        ansible_env:
+          KUBECONFIG: "/root/.kube/config"
+
+    # - name: Add Jaeger Helm repository
+    #   kubernetes.core.helm_repository:
+    #     name: jaegertracing
+    #     repo_url: "https://jaegertracing.github.io/helm-charts"
+
+    - name: Add Grafana Helm repository (for Loki)
+      kubernetes.core.helm_repository:
+        name: grafana
+        repo_url: "https://grafana.github.io/helm-charts"
+
+    - name: Update Helm repositories
+      ansible.builtin.command: helm repo update
+      register: helm_repo_update
+      changed_when: "'Update Complete.' in helm_repo_update.stdout"
+
+    # - name: Upgrade Jaeger with Helm
+    #   kubernetes.core.helm:
+    #     name: jaeger
+    #     chart_ref: jaegertracing/jaeger
+    #     release_namespace: monitoring
+    #     values_files:
+    #       - "{{ playbook_dir }}/../files/jaeger-values.yaml"
+    #     state: present
+
+    - name: Upgrade Loki with Helm
+      kubernetes.core.helm:
+        name: loki
+        chart_ref: grafana/loki      
+        release_namespace: monitoring
+        values_files:
+          - "{{ playbook_dir }}/../files/loki-values.yaml"
+        state: present

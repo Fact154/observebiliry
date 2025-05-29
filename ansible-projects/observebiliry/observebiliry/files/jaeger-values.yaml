@@ -1,0 +1,39 @@
+storage:
+  type: badger 
+  badger:
+    directory: /mnt/data/badger
+    ephemeral: false
+
+persistence:
+  enabled: true
+  existingClaim: jaeger-pvc
+
+collector:
+  enabled: true
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false 
+  extraEnv:
+    - name: SPAN_STORAGE_TYPE
+      value: badger
+    - name: COLLECTOR_OTLP_ENABLED
+      value: "true"
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+
+query:
+  enabled: true
+  service:
+    type: NodePort
+    nodePort: 30082
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+
+agent:
+  enabled: true
+  strategy: DaemonSet

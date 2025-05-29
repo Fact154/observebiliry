@@ -1,0 +1,98 @@
+---
+- name: Install and Configure MongoDB Exporter
+  hosts: mongodb_servers
+  become: true
+
+  vars:
+    mongodb_exporter_version: "0.39.0"
+    mongodb_exporter_user: "mongodb_exporter"
+    mongodb_exporter_port: 9216
+    mongodb_root_password: "example"
+    mongodb_user: "mongodb_exporter"
+    mongodb_password: "example"
+
+  tasks:
+    - name: Create mongodb_exporter user
+      user:
+        name: "{{ mongodb_exporter_user }}"
+        shell: /usr/sbin/nologin
+        system: yes
+        createhome: no
+
+    # --- Проверка существования пользователя MongoDB ---
+    - name: Check if MongoDB user exists
+      shell: |
+        mongosh --host {{ ansible_host }} --port 27017 --authenticationDatabase "admin" -u root -p "{{ mongodb_root_password }}" --eval "
+        use admin;
+        db.getUser('{{ mongodb_user }}')"
+      register: mongodb_user_check
+      ignore_errors: yes
+      changed_when: false
+
+    - debug:
+        msg: "MongoDB user check result: {{ mongodb_user_check.stdout }}"
+
+    # --- Создание пользователя MongoDB, если его нет ---
+    - name: Create MongoDB user if it doesn't exist
+      shell: |
+        mongosh --host {{ ansible_host }} --port 27017 --authenticationDatabase "admin" -u root -p "{{ mongodb_root_password }}" --eval "
+        use admin;
+        db.createUser({
+          user: '{{ mongodb_user }}',
+          pwd: '{{ mongodb_password }}',
+          roles: [
+            { role: 'clusterMonitor', db: 'admin' },
+            { role: 'read', db: 'local' }
+          ]
+        })"
+      when: "'user not found' in mongodb_user_check.stdout or mongodb_user_check.stdout == ''"
+
+    # --- Установка MongoDB Exporter ---
+    - name: Download MongoDB Exporter binary
+      get_url:
+        url: "https://github.com/percona/mongodb_exporter/releases/download/v{{ mongodb_exporter_version }}/mongodb_exporter-{{ mongodb_exporter_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/mongodb_exporter.tar.gz"
+        mode: '0644'
+
+    - name: Extract MongoDB Exporter
+      ansible.builtin.unarchive:
+        src: "/tmp/mongodb_exporter.tar.gz"
+        dest: "/usr/local/bin/"
+        remote_src: yes
+        extra_opts: [--strip-components=1]
+
+    - name: Set permissions for MongoDB Exporter
+      file:
+        path: "/usr/local/bin/mongodb_exporter"
+        owner: "{{ mongodb_exporter_user }}"
+        group: "{{ mongodb_exporter_user }}"
+        mode: '0755'
+
+    - name: Create systemd service for MongoDB Exporter
+      copy:
+        dest: "/etc/systemd/system/mongodb_exporter.service"
+        content: |
+          [Unit]
+          Description=MongoDB Exporter
+          After=network.target
+
+          [Service]
+          User={{ mongodb_exporter_user }}
+          Group={{ mongodb_exporter_user }}
+          Type=simple
+          ExecStart=/usr/local/bin/mongodb_exporter --mongodb.uri="mongodb://{{ mongodb_user }}:{{ mongodb_password }}@{{ ansible_host }}:27017/admin" --collect-all --web.listen-address=:{{ mongodb_exporter_port }}
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable and start MongoDB Exporter
+      systemd:
+        name: mongodb_exporter
+        state: restarted
+        enabled: yes
